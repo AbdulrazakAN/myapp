@@ -319,7 +319,8 @@
     <label>اسم المشروع</label>
     <input type="text" id="epName" style="margin-bottom:10px">
     <label>كلمة مرور المشروع</label>
-    <input type="text" id="epPass">
+    <input type="text" id="epPass" placeholder="اتركها فارغة لعدم التغيير">
+    <p style="font-size:11px;color:var(--muted);margin-top:4px">لا يمكن عرض كلمة المرور الحالية (مشفّرة) — اكتب كلمة جديدة لإعادة تعيينها فقط.</p>
     <div class="edit-msg" id="epMsg"></div>
     <div class="actions" style="margin-top:14px">
       <button class="btn-ghost" id="epCancel">إلغاء</button>
@@ -345,6 +346,8 @@
   <div class="gate-box">
     <h1 class="gate-title">🎬 Abdulrazak Abou Nabout<br>Series Tracker</h1>
     <p class="gate-sub">اكتب كلمة مرور المشروع للدخول، أو الكلمة الرئيسية لإدارة كل المشاريع.</p>
+    <p class="gate-sub" id="setupHint" style="display:none; color:var(--accent2)">⚙️ أول استخدام: اكتب كلمة المرور الرئيسية التي تريد اعتمادها (احفظها جيداً — لا يمكن استرجاعها).</p>
+    <input type="text" id="gateName" placeholder="اسمك (اختياري — لسجل الدخول)" autocomplete="off" style="margin-bottom:10px">
     <input type="password" id="gatePass" placeholder="كلمة المرور" autocomplete="off">
     <div class="edit-msg" id="gateMsg" style="text-align:center"></div>
     <button class="btn-add" id="gateEnter" style="width:100%; margin-top:12px">دخول</button>
@@ -371,7 +374,7 @@
   <div class="card">
     <h2>📁 المشاريع</h2>
     <table>
-      <thead><tr><th>المشروع</th><th>كلمة المرور</th><th class="center">مشاهد</th><th class="center">الزمن الكلي</th><th class="center"></th></tr></thead>
+      <thead><tr><th>المشروع</th><th class="center">مشاهد</th><th class="center">الزمن الكلي</th><th class="center"></th></tr></thead>
       <tbody id="projList"></tbody>
     </table>
   </div>
@@ -384,6 +387,17 @@
       <button class="btn-ghost" onclick="changeMaster()">تغيير</button>
     </div>
     <div class="edit-msg" id="mpMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="display:flex; justify-content:space-between; align-items:center">
+      <span>👣 سجل الدخول <span style="font-weight:400" id="loginCount"></span></span>
+      <button class="btn-ghost btn-reset" style="font-size:12px; padding:6px 10px" onclick="clearLoginLog()">مسح السجل</button>
+    </h2>
+    <table>
+      <thead><tr><th>الوقت</th><th>الاسم</th><th>الدور</th><th>المشروع</th><th class="center">النتيجة</th></tr></thead>
+      <tbody id="loginLog"></tbody>
+    </table>
   </div>
 </div>
 
@@ -513,56 +527,170 @@
 </div>
 </div><!-- /trackerView -->
 
-<script>
-/* ============ نظام المشاريع ============ */
-const PROJECTS_KEY = "series-projects-v1";
-const MASTER_KEY = "series-master-password";
-const DEFAULT_MASTER = "master"; // كلمة المرور الرئيسية الافتراضية (يمكن تغييرها من اللوحة)
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+  import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs }
+    from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
 
-let projects = [];
-let currentProject = null;     // المشروع المفتوح حالياً
-let entries = [];              // مشاهد المشروع الحالي (مرجع)
+  const firebaseConfig = {
+    apiKey: "AIzaSyCB916U2yLZriuq0eMsB_ZpagxJ63AMOlc",
+    authDomain: "myapp-81fc0.firebaseapp.com",
+    projectId: "myapp-81fc0",
+    storageBucket: "myapp-81fc0.firebasestorage.app",
+    messagingSenderId: "571901671145",
+    appId: "1:571901671145:web:430d739409265f4bd56278",
+    measurementId: "G-M123MT8PQ2"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  window.FB = { db, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs, ready: true };
+  window.dispatchEvent(new Event("fb-ready"));
+</script>
+
+<script>
+/* ============ تشفير (Web Crypto API) ============ */
+const _SALT=16,_IV=12,_ITERS=150000,_te=new TextEncoder(),_td=new TextDecoder();
+function ab2b64(buf){let s="";const b=new Uint8Array(buf);for(let i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return btoa(s);}
+function b642ab(b64){const s=atob(b64);const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u;}
+function _cat(...a){let n=a.reduce((x,y)=>x+y.length,0),o=new Uint8Array(n),p=0;for(const x of a){o.set(x,p);p+=x.length;}return o;}
+async function _derive(pw,salt){const base=await crypto.subtle.importKey("raw",_te.encode(pw),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:_ITERS,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);}
+async function genDataKey(){return crypto.subtle.generateKey({name:"AES-GCM",length:256},true,["encrypt","decrypt"]);}
+async function wrapKey(dataKey,pw){const raw=new Uint8Array(await crypto.subtle.exportKey("raw",dataKey));const salt=crypto.getRandomValues(new Uint8Array(_SALT));const iv=crypto.getRandomValues(new Uint8Array(_IV));const wk=await _derive(pw,salt);const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},wk,raw));return ab2b64(_cat(salt,iv,ct));}
+async function unwrapKey(b64,pw){const b=b642ab(b64),salt=b.slice(0,_SALT),iv=b.slice(_SALT,_SALT+_IV),ct=b.slice(_SALT+_IV);const wk=await _derive(pw,salt);const raw=await crypto.subtle.decrypt({name:"AES-GCM",iv},wk,ct);return crypto.subtle.importKey("raw",raw,{name:"AES-GCM"},true,["encrypt","decrypt"]);}
+async function encJSON(obj,dataKey){const iv=crypto.getRandomValues(new Uint8Array(_IV));const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},dataKey,_te.encode(JSON.stringify(obj))));return ab2b64(_cat(iv,ct));}
+async function decJSON(b64,dataKey){const b=b642ab(b64),iv=b.slice(0,_IV),ct=b.slice(_IV);const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv},dataKey,ct);return JSON.parse(_td.decode(pt));}
+async function makeMasterCheck(pw){const salt=crypto.getRandomValues(new Uint8Array(_SALT));const iv=crypto.getRandomValues(new Uint8Array(_IV));const k=await _derive(pw,salt);const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},k,_te.encode("OK")));return ab2b64(_cat(salt,iv,ct));}
+async function verifyMasterCheck(b64,pw){try{const b=b642ab(b64),salt=b.slice(0,_SALT),iv=b.slice(_SALT,_SALT+_IV),ct=b.slice(_SALT+_IV);const k=await _derive(pw,salt);const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv},k,ct);return _td.decode(pt)==="OK";}catch{return false;}}
+async function genLogKeypair(){return crypto.subtle.generateKey({name:"RSA-OAEP",modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:"SHA-256"},true,["encrypt","decrypt"]);}
+async function exportPub(pub){return ab2b64(await crypto.subtle.exportKey("spki",pub));}
+async function importPub(b64){return crypto.subtle.importKey("spki",b642ab(b64),{name:"RSA-OAEP",hash:"SHA-256"},true,["encrypt"]);}
+async function wrapPriv(priv,pw){const raw=new Uint8Array(await crypto.subtle.exportKey("pkcs8",priv));const salt=crypto.getRandomValues(new Uint8Array(_SALT));const iv=crypto.getRandomValues(new Uint8Array(_IV));const wk=await _derive(pw,salt);const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},wk,raw));return ab2b64(_cat(salt,iv,ct));}
+async function unwrapPriv(b64,pw){const b=b642ab(b64),salt=b.slice(0,_SALT),iv=b.slice(_SALT,_SALT+_IV),ct=b.slice(_SALT+_IV);const wk=await _derive(pw,salt);const raw=await crypto.subtle.decrypt({name:"AES-GCM",iv},wk,ct);return crypto.subtle.importKey("pkcs8",raw,{name:"RSA-OAEP",hash:"SHA-256"},true,["decrypt"]);}
+async function logEncrypt(obj,pub){const ct=new Uint8Array(await crypto.subtle.encrypt({name:"RSA-OAEP"},pub,_te.encode(JSON.stringify(obj))));return ab2b64(ct);}
+async function logDecrypt(b64,priv){const pt=await crypto.subtle.decrypt({name:"RSA-OAEP"},priv,b642ab(b64));return JSON.parse(_td.decode(pt));}
+
+/* ============ نظام المشاريع المشفّر (Firestore) ============ */
+let projects = [];             // المشاريع المتاحة حالياً (مفكوكة التشفير في الذاكرة)
+let currentProject = null;     // المشروع المفتوح
+let entries = [];              // مشاهد المشروع الحالي (نص صريح في الذاكرة)
 let filter = { day: "", date: "", episode: "", scene: "" };
 let sort = { key: "day", dir: 1 };
+let fbReady = false;
+let firstSnapshotDone = false;
 
-function getMaster() {
-  try { return localStorage.getItem(MASTER_KEY) || DEFAULT_MASTER; } catch { return DEFAULT_MASTER; }
-}
-function setMaster(pw) { try { localStorage.setItem(MASTER_KEY, pw); } catch {} }
-
-function loadProjects() {
-  try { projects = JSON.parse(localStorage.getItem(PROJECTS_KEY)) || []; } catch { projects = []; }
-  // ترحيل بيانات النسخة القديمة (مشروع واحد) إلى أول مشروع
-  if (projects.length === 0) {
-    let oldEntries = [];
-    try {
-      const s = localStorage.getItem("series-editing-tracker-v2") || localStorage.getItem("series-editing-tracker-v1");
-      if (s) oldEntries = JSON.parse(s) || [];
-    } catch {}
-    let oldTitle = "المسلسل";
-    try { oldTitle = localStorage.getItem("series-title") || "المسلسل"; } catch {}
-    if (oldEntries.length > 0) {
-      projects.push({ id: newId(), name: oldTitle, password: "1234", title: oldTitle, entries: oldEntries });
-      persistProjects();
-    }
-  }
-  // ضمان معرّف ثابت لكل مشهد
-  projects.forEach(p => {
-    p.entries = p.entries || [];
-    p.entries.forEach(e => { if (!e.id) e.id = "s" + (e.added || Date.now()) + Math.random().toString(36).slice(2,7); });
-  });
-}
+let rawProjects = {};          // id -> {blob, wrapProj, wrapMaster}
+let appConfig = null;          // {masterCheck, logPubKey, logPrivWrap}
+let masterKeys = null;         // عند دخول الماستر: { id -> dataKey CryptoKey }
+let masterLogPriv = null;      // مفتاح فك سجل الدخول (للماستر)
+let logPubKey = null;          // مفتاح تشفير سجل الدخول (عام)
+let rawLogins = [];            // سجلات الدخول المشفّرة الخام
 
 function newId() { return "p" + Date.now() + Math.random().toString(36).slice(2,7); }
-function persistProjects() { try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects)); } catch {} }
+function isSetup() { return !!(appConfig && appConfig.masterCheck); }
 
-// حفظ: يزامن مشاهد المشروع الحالي ثم يخزّن كل المشاريع
-function save() {
-  if (currentProject) currentProject.entries = entries;
-  persistProjects();
+// ---- كتابة إلى Firestore ----
+function fbWriteProject(id, rawDoc) {
+  if (!fbReady) return Promise.resolve();
+  const { db, doc, setDoc } = window.FB;
+  return setDoc(doc(db, "projects", id), rawDoc).catch(()=>showBanner("⚠️ تعذّر الحفظ في السحابة", false));
+}
+function fbDeleteProject(id) {
+  if (!fbReady) return;
+  const { db, doc, deleteDoc } = window.FB;
+  deleteDoc(doc(db, "projects", id)).catch(()=>{});
+}
+function fbWriteConfig(obj) {
+  if (!fbReady) return Promise.resolve();
+  const { db, doc, setDoc } = window.FB;
+  return setDoc(doc(db, "config", "app"), obj).catch(()=>{});
 }
 
-loadProjects();
+// حفظ المشروع الحالي: يشفّر المحتوى بمفتاح المشروع ويكتب blob فقط (يبقي الأغلفة كما هي)
+async function save() {
+  if (!currentProject || !currentProject._dataKey) return;
+  currentProject.entries = entries;
+  const blob = await encJSON({ name: currentProject.name, title: currentProject.title, entries }, currentProject._dataKey);
+  const raw = rawProjects[currentProject.id] || {};
+  raw.blob = blob;
+  rawProjects[currentProject.id] = raw;
+  await fbWriteProject(currentProject.id, raw);
+}
+
+// قراءة بيانات محلية قديمة (للترحيل): قد تكون مشاريع مشفّرة قديمة بنص صريح
+function readLocalProjects() {
+  let local = [];
+  try { local = JSON.parse(localStorage.getItem("series-projects-v1")) || []; } catch {}
+  if (local.length === 0) {
+    try {
+      const s = localStorage.getItem("series-editing-tracker-v2") || localStorage.getItem("series-editing-tracker-v1");
+      const oldEntries = s ? (JSON.parse(s) || []) : [];
+      let oldTitle = localStorage.getItem("series-title") || "المسلسل";
+      if (oldEntries.length > 0) local = [{ id: newId(), name: oldTitle, password: "1234", title: oldTitle, entries: oldEntries }];
+    } catch {}
+  }
+  local.forEach(p => { p.entries = (p.entries||[]); p.entries.forEach(e => { if (!e.id) e.id = "s"+(e.added||Date.now())+Math.random().toString(36).slice(2,7); }); });
+  return local;
+}
+
+// ---- الاشتراك الحي ----
+function subscribeFirestore() {
+  const { db, collection, onSnapshot, doc } = window.FB;
+  onSnapshot(doc(db, "config", "app"), async (d) => {
+    appConfig = (d && d.exists()) ? d.data() : null;
+    if (appConfig && appConfig.logPubKey) { try { logPubKey = await importPub(appConfig.logPubKey); } catch {} }
+    updateGateMode();
+  }, () => {});
+
+  onSnapshot(collection(db, "projects"), async (snap) => {
+    rawProjects = {};
+    snap.docs.forEach(d => { rawProjects[d.id] = d.data() || {}; });
+    if (!firstSnapshotDone) firstSnapshotDone = true;
+    await refreshDecrypted();
+  }, () => { showBanner("⚠️ تعذّر الاتصال بقاعدة البيانات", false); });
+
+  onSnapshot(collection(db, "logins"), async (snap) => {
+    rawLogins = snap.docs.map(d => ({ id: d.id, enc: (d.data()||{}).enc }));
+    if (document.getElementById("dashboardView").style.display === "block") renderLoginLog();
+  }, () => {});
+}
+
+// فكّ تشفير المشاريع المتاحة حسب الدور وإعادة العرض
+async function refreshDecrypted() {
+  if (isMaster && masterKeys) {
+    // الماستر يرى كل المشاريع
+    const list = [];
+    for (const id of Object.keys(rawProjects)) {
+      try {
+        let key = masterKeys[id];
+        if (!key) { key = await unwrapKey(rawProjects[id].wrapMaster, _masterPw); masterKeys[id] = key; }
+        const content = await decJSON(rawProjects[id].blob, key);
+        content.entries = (content.entries||[]); content.entries.forEach(e=>{ if(!e.id) e.id="s"+(e.added||Date.now())+Math.random().toString(36).slice(2,7); });
+        list.push({ id, name: content.name, title: content.title||content.name, entries: content.entries, _dataKey: key });
+      } catch {}
+    }
+    projects = list;
+  } else if (currentProject) {
+    // المشاهد يرى مشروعه فقط
+    const raw = rawProjects[currentProject.id];
+    if (!raw) { lockApp(); return; }
+    try {
+      const content = await decJSON(raw.blob, currentProject._dataKey);
+      content.entries = (content.entries||[]); content.entries.forEach(e=>{ if(!e.id) e.id="s"+(e.added||Date.now())+Math.random().toString(36).slice(2,7); });
+      currentProject.name = content.name; currentProject.title = content.title||content.name; currentProject.entries = content.entries;
+      projects = [currentProject];
+    } catch {}
+  }
+  // أعد ربط المشروع المفتوح
+  if (currentProject) {
+    const updated = projects.find(p => p.id === currentProject.id);
+    if (updated) { currentProject = updated; entries = currentProject.entries; }
+    else if (isMaster) { /* قد يكون أُنشئ للتو */ }
+    else { lockApp(); return; }
+  }
+  if (document.getElementById("dashboardView").style.display === "block") renderDashboard();
+  if (document.getElementById("trackerView").style.display === "block") render();
+}
 
 /* ===== تراجع / إعادة ===== */
 let undoStack = [];
@@ -1282,7 +1410,7 @@ function saveTitle() {
   if (!isMaster) return;
   let t = titleText.textContent.replace(/\s+/g, " ").trim();
   if (!t) { t = "المسلسل"; titleText.textContent = t; }
-  if (currentProject) { currentProject.title = t; currentProject.name = t; persistProjects(); }
+  if (currentProject) { currentProject.title = t; currentProject.name = t; save(); }
   document.title = t;
 }
 
@@ -1305,8 +1433,9 @@ function showView(v) {
 }
 
 let isMaster = false;
+let _masterPw = null;   // كلمة الماستر في الذاكرة (لإعادة التشفير عند الحاجة)
 
-function openProject(p, asMaster) {
+function openProjectDecrypted(p, asMaster) {
   currentProject = p;
   isMaster = !!asMaster;
   entries = p.entries;
@@ -1321,14 +1450,12 @@ function openProject(p, asMaster) {
   document.getElementById("dupWarn").classList.remove("show");
 }
 
-// إظهار/إخفاء الأدوات حسب الدور
 function applyRole() {
   const show = isMaster ? "" : "none";
-  document.getElementById("addCard").style.display = show;       // إضافة سجلات
-  document.getElementById("masterTools").style.display = show;   // تراجع/إعادة
-  document.getElementById("masterIO").style.display = show;      // نسخ احتياطي/استرجاع
-  document.querySelector(".reset-area").style.display = show;    // مسح الكل
-  // شارة الدور والاسم (الاسم يُعدّل للماستر فقط)
+  document.getElementById("addCard").style.display = show;
+  document.getElementById("masterTools").style.display = show;
+  document.getElementById("masterIO").style.display = show;
+  document.querySelector(".reset-area").style.display = show;
   const badge = document.getElementById("roleBadge");
   if (isMaster) { badge.textContent = "ماستر"; badge.className = "role-badge master"; }
   else { badge.textContent = "مشاهدة"; badge.className = "role-badge viewer"; }
@@ -1337,84 +1464,213 @@ function applyRole() {
 }
 
 function lockApp() {
-  currentProject = null; entries = [];
+  currentProject = null; entries = []; isMaster = false;
+  _masterPw = null; masterKeys = null; masterLogPriv = null;
   document.getElementById("gatePass").value = "";
   document.getElementById("gateMsg").classList.remove("show");
+  try { const n = localStorage.getItem("login-name"); if (n && n !== "—") document.getElementById("gateName").value = n; } catch {}
   showView("gate");
+  updateGateMode();
   document.getElementById("gatePass").focus();
 }
 
-// محاولة الدخول بكلمة المرور
-function tryEnter() {
+// تبديل واجهة البوابة بين "أول إعداد" و "دخول عادي"
+function updateGateMode() {
+  const setupHint = document.getElementById("setupHint");
+  if (!setupHint) return;
+  if (fbReady && !isSetup()) {
+    setupHint.style.display = "block";
+    document.getElementById("gateEnter").textContent = "تعيين الكلمة الرئيسية";
+  } else {
+    setupHint.style.display = "none";
+    document.getElementById("gateEnter").textContent = "دخول";
+  }
+}
+
+// محاولة الدخول (غير متزامنة بسبب التشفير)
+async function tryEnter() {
   const pw = document.getElementById("gatePass").value;
+  const name = document.getElementById("gateName").value.trim() || "—";
+  try { localStorage.setItem("login-name", name); } catch {}
   const msg = document.getElementById("gateMsg");
-  if (pw === getMaster()) { renderDashboard(); showView("dash"); return; }
-  const proj = projects.find(p => p.password === pw && pw !== "");
-  if (proj) { openProject(proj, false); return; }
+  msg.classList.remove("show");
+  if (!fbReady) { msg.textContent = "⏳ جارٍ الاتصال…"; msg.classList.add("show"); return; }
+
+  // أول إعداد: لا توجد كلمة رئيسية بعد → عيّنها وأنشئ المفاتيح ورحّل البيانات القديمة
+  if (!isSetup()) {
+    if (!pw) { msg.textContent = "⚠️ اكتب كلمة المرور الرئيسية الجديدة"; msg.classList.add("show"); return; }
+    msg.textContent = "⏳ جارٍ التهيئة…"; msg.classList.add("show");
+    await setupMaster(pw);
+    await loginAsMaster(pw, name);
+    return;
+  }
+
+  // تحقّق ماستر
+  if (await verifyMasterCheck(appConfig.masterCheck, pw)) { await loginAsMaster(pw, name); return; }
+
+  // تحقّق مشاهد: جرّب فكّ غلاف كل مشروع بكلمة المرور
+  for (const id of Object.keys(rawProjects)) {
+    try {
+      const key = await unwrapKey(rawProjects[id].wrapProj, pw);
+      const content = await decJSON(rawProjects[id].blob, key);
+      content.entries = (content.entries||[]); content.entries.forEach(e=>{ if(!e.id) e.id="s"+(e.added||Date.now())+Math.random().toString(36).slice(2,7); });
+      const p = { id, name: content.name, title: content.title||content.name, entries: content.entries, _dataKey: key };
+      logLogin(name, "مشاهدة", p.name, true);
+      openProjectDecrypted(p, false);
+      return;
+    } catch {}
+  }
+  logLogin(name, "—", "—", false);
   msg.textContent = "⚠️ كلمة المرور غير صحيحة";
   msg.classList.add("show");
+}
+
+// تهيئة أول مرة: إنشاء masterCheck + مفتاحي سجل الدخول + ترحيل البيانات القديمة
+async function setupMaster(pw) {
+  const masterCheck = await makeMasterCheck(pw);
+  const kp = await genLogKeypair();
+  const logPubB64 = await exportPub(kp.publicKey);
+  const logPrivWrap = await wrapPriv(kp.privateKey, pw);
+  await fbWriteConfig({ masterCheck, logPubKey: logPubB64, logPrivWrap });
+  appConfig = { masterCheck, logPubKey: logPubB64, logPrivWrap };
+  logPubKey = await importPub(logPubB64);
+
+  // ترحيل: شفّر أي مشاريع قديمة (نص صريح) إن وجدت في السحابة أو محلياً
+  const plainCloud = Object.keys(rawProjects).filter(id => rawProjects[id].entries && !rawProjects[id].blob)
+    .map(id => ({ id, name: rawProjects[id].name, password: rawProjects[id].password || "1234", title: rawProjects[id].title || rawProjects[id].name, entries: rawProjects[id].entries }));
+  const toMigrate = plainCloud.length ? plainCloud : readLocalProjects();
+  for (const p of toMigrate) {
+    await encryptAndWriteNewProject(p.id || newId(), p.name, p.title || p.name, p.entries || [], p.password || "1234", pw);
+  }
+}
+
+// أنشئ مشروعاً مشفّراً واكتبه
+async function encryptAndWriteNewProject(id, name, title, entries, projPw, masterPw) {
+  const dataKey = await genDataKey();
+  const blob = await encJSON({ name, title, entries }, dataKey);
+  const wrapProj = await wrapKey(dataKey, projPw);
+  const wrapMaster = await wrapKey(dataKey, masterPw);
+  const raw = { blob, wrapProj, wrapMaster };
+  rawProjects[id] = raw;
+  await fbWriteProject(id, raw);
+  return { id, dataKey };
+}
+
+async function loginAsMaster(pw, name) {
+  _masterPw = pw; isMaster = true; masterKeys = {};
+  try { masterLogPriv = await unwrapPriv(appConfig.logPrivWrap, pw); } catch { masterLogPriv = null; }
+  logLogin(name, "ماستر", "—", true);
+  await refreshDecrypted();
+  renderDashboard();
+  showView("dash");
+}
+
+/* ===== سجل الدخول (مشفّر) ===== */
+function logLogin(name, role, project, success) {
+  if (!fbReady || !logPubKey) return;
+  const { db, doc, setDoc } = window.FB;
+  const id = "L" + Date.now() + Math.random().toString(36).slice(2,7);
+  logEncrypt({ ts: Date.now(), name, role, project, success: !!success }, logPubKey)
+    .then(enc => setDoc(doc(db, "logins", id), { enc }).catch(()=>{}))
+    .catch(()=>{});
+}
+function fmtTime(ms) {
+  const d = new Date(ms); const p = x => String(x).padStart(2,"0");
+  return `${p(d.getDate())}/${p(d.getMonth()+1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+async function renderLoginLog() {
+  const body = document.getElementById("loginLog");
+  const cnt = document.getElementById("loginCount");
+  if (!body) return;
+  if (!masterLogPriv) { body.innerHTML = '<tr><td colspan="5" class="empty">—</td></tr>'; return; }
+  const decoded = [];
+  for (const l of rawLogins) {
+    try { const o = await logDecrypt(l.enc, masterLogPriv); decoded.push({ id: l.id, ...o }); } catch {}
+  }
+  decoded.sort((a,b)=>b.ts-a.ts);
+  if (cnt) cnt.textContent = decoded.length ? `(${decoded.length})` : "";
+  if (decoded.length === 0) { body.innerHTML = '<tr><td colspan="5" class="empty">لا يوجد دخول مسجّل بعد</td></tr>'; return; }
+  body.innerHTML = decoded.slice(0,100).map(l => `<tr>
+    <td class="tc">${fmtTime(l.ts)}</td>
+    <td>${escapeHtml(l.name||"—")}</td>
+    <td>${escapeHtml(l.role||"—")}</td>
+    <td>${escapeHtml(l.project||"—")}</td>
+    <td class="center">${l.success ? "✓" : "✕ فشل"}</td>
+  </tr>`).join("");
+}
+function clearLoginLog() {
+  if (!fbReady || !isMaster) return;
+  const { db, doc, deleteDoc } = window.FB;
+  rawLogins.forEach(l => { if (l.id) deleteDoc(doc(db, "logins", l.id)).catch(()=>{}); });
+  showBanner("✓ تم مسح سجل الدخول", true);
 }
 
 /* ============ لوحة المشاريع (master) ============ */
 function renderDashboard() {
   const body = document.getElementById("projList");
   if (projects.length === 0) {
-    body.innerHTML = '<tr><td colspan="5" class="empty">لا توجد مشاريع بعد — أنشئ مشروعاً من الأعلى</td></tr>';
+    body.innerHTML = '<tr><td colspan="4" class="empty">لا توجد مشاريع بعد — أنشئ مشروعاً من الأعلى</td></tr>';
   } else {
     body.innerHTML = projects.map(p => {
       const total = p.entries.reduce((a,e)=>a+e.seconds,0);
       return `<tr>
         <td>${escapeHtml(p.name)}</td>
-        <td class="tc">${escapeHtml(p.password)}</td>
         <td class="center">${p.entries.length}</td>
         <td class="tc">${fmtLong(total)}</td>
         <td class="center no-print" style="white-space:nowrap">
           <button class="edit" onclick="openProjectById('${p.id}')" title="فتح">↗</button>
-          <button class="edit" onclick="editProject('${p.id}')" title="تعديل">✎</button>
+          <button class="edit" onclick="editProject('${p.id}')" title="تعديل الاسم/كلمة المرور">✎</button>
           <button class="del" onclick="deleteProject('${p.id}')" title="حذف">✕</button>
         </td></tr>`;
     }).join("");
   }
+  renderLoginLog();
 }
 
-function openProjectById(id) { const p = projects.find(x=>x.id===id); if (p) openProject(p, true); }
+function openProjectById(id) { const p = projects.find(x=>x.id===id); if (p) openProjectDecrypted(p, true); }
 
-function createProject() {
+async function createProject() {
   const name = document.getElementById("npName").value.trim();
   const pass = document.getElementById("npPass").value.trim();
   const msg = document.getElementById("npMsg");
-  if (!name || !pass) { msg.textContent = "⚠️ اكتب اسم المشروع وكلمة المرور"; msg.classList.add("show"); return; }
-  if (pass === getMaster()) { msg.textContent = "⚠️ لا يمكن أن تساوي كلمة مرور المشروع الكلمة الرئيسية"; msg.classList.add("show"); return; }
-  if (projects.some(p => p.password === pass)) { msg.textContent = "⚠️ كلمة المرور مستخدمة في مشروع آخر — اختر غيرها"; msg.classList.add("show"); return; }
-  projects.push({ id: newId(), name, password: pass, title: name, entries: [] });
-  persistProjects();
+  if (!name || !pass) { msg.style.color="var(--danger)"; msg.textContent = "⚠️ اكتب اسم المشروع وكلمة المرور"; msg.classList.add("show"); return; }
+  if (_masterPw && pass === _masterPw) { msg.style.color="var(--danger)"; msg.textContent = "⚠️ لا يمكن أن تساوي كلمة مرور المشروع الكلمة الرئيسية"; msg.classList.add("show"); return; }
+  const id = newId();
+  const { dataKey } = await encryptAndWriteNewProject(id, name, name, [], pass, _masterPw);
+  masterKeys[id] = dataKey;
   document.getElementById("npName").value = "";
   document.getElementById("npPass").value = "";
   msg.classList.remove("show");
+  await refreshDecrypted();
   renderDashboard();
 }
 
-// تعديل اسم/كلمة مشروع
+// تعديل اسم المشروع و/أو إعادة تعيين كلمة مروره (الماستر لا يرى الكلمة القديمة)
 let editingProjectId = null;
 function editProject(id) {
   const p = projects.find(x=>x.id===id); if (!p) return;
   editingProjectId = id;
   document.getElementById("epName").value = p.name;
-  document.getElementById("epPass").value = p.password;
+  document.getElementById("epPass").value = "";
   document.getElementById("epMsg").classList.remove("show");
   document.getElementById("projEditModal").classList.add("show");
 }
-document.getElementById("epSave").addEventListener("click", () => {
+document.getElementById("epSave").addEventListener("click", async () => {
   const p = projects.find(x=>x.id===editingProjectId); if (!p) return;
   const name = document.getElementById("epName").value.trim();
-  const pass = document.getElementById("epPass").value.trim();
+  const pass = document.getElementById("epPass").value.trim();   // فارغ = لا تغيّر كلمة المرور
   const msg = document.getElementById("epMsg");
-  if (!name || !pass) { msg.textContent = "⚠️ اكتب الاسم وكلمة المرور"; msg.classList.add("show"); return; }
-  if (pass === getMaster()) { msg.textContent = "⚠️ لا تساوي الكلمة الرئيسية"; msg.classList.add("show"); return; }
-  if (projects.some(x => x.id !== p.id && x.password === pass)) { msg.textContent = "⚠️ كلمة المرور مستخدمة"; msg.classList.add("show"); return; }
-  p.name = name; p.title = name; p.password = pass;
-  persistProjects(); renderDashboard();
+  if (!name) { msg.textContent = "⚠️ اكتب الاسم"; msg.classList.add("show"); return; }
+  if (pass && _masterPw && pass === _masterPw) { msg.textContent = "⚠️ لا تساوي الكلمة الرئيسية"; msg.classList.add("show"); return; }
+  p.name = name; p.title = name;
+  const raw = rawProjects[p.id] || {};
+  raw.blob = await encJSON({ name: p.name, title: p.title, entries: p.entries }, p._dataKey);
+  if (pass) raw.wrapProj = await wrapKey(p._dataKey, pass);   // إعادة لفّ المفتاح بكلمة جديدة
+  rawProjects[p.id] = raw;
+  await fbWriteProject(p.id, raw);
+  renderDashboard();
   document.getElementById("projEditModal").classList.remove("show");
+  showBanner(pass ? "✓ تم تحديث الاسم وكلمة المرور" : "✓ تم تحديث الاسم", true);
 });
 document.getElementById("epCancel").addEventListener("click", () => document.getElementById("projEditModal").classList.remove("show"));
 
@@ -1429,26 +1685,40 @@ function deleteProject(id) {
   document.getElementById("delProjModal").classList.add("show");
 }
 document.getElementById("delProjOk").addEventListener("click", () => {
-  if (document.getElementById("delProjPass").value !== getMaster()) {
+  if (document.getElementById("delProjPass").value !== _masterPw) {
     const m = document.getElementById("delProjMsg"); m.textContent = "⚠️ الكلمة الرئيسية غير صحيحة"; m.classList.add("show"); return;
   }
+  fbDeleteProject(deletingProjectId);
+  delete rawProjects[deletingProjectId];
+  if (masterKeys) delete masterKeys[deletingProjectId];
   projects = projects.filter(p => p.id !== deletingProjectId);
-  persistProjects(); renderDashboard();
+  renderDashboard();
   document.getElementById("delProjModal").classList.remove("show");
 });
 document.getElementById("delProjCancel").addEventListener("click", () => document.getElementById("delProjModal").classList.remove("show"));
 
-// تغيير الكلمة الرئيسية
-function changeMaster() {
+// تغيير الكلمة الرئيسية: يتطلب الكلمة الحالية + إعادة لفّ مفاتيح كل المشاريع وسجل الدخول
+async function changeMaster() {
   const cur = document.getElementById("mpCur").value;
   const nw = document.getElementById("mpNew").value.trim();
   const msg = document.getElementById("mpMsg");
-  if (cur !== getMaster()) { msg.style.color="var(--danger)"; msg.textContent = "⚠️ الكلمة الرئيسية الحالية غير صحيحة"; msg.classList.add("show"); return; }
+  if (cur !== _masterPw) { msg.style.color="var(--danger)"; msg.textContent = "⚠️ الكلمة الرئيسية الحالية غير صحيحة"; msg.classList.add("show"); return; }
   if (!nw) { msg.style.color="var(--danger)"; msg.textContent = "⚠️ اكتب كلمة رئيسية جديدة"; msg.classList.add("show"); return; }
-  if (projects.some(p => p.password === nw)) { msg.style.color="var(--danger)"; msg.textContent = "⚠️ مستخدمة في مشروع"; msg.classList.add("show"); return; }
-  setMaster(nw);
+  msg.style.color="var(--muted)"; msg.textContent = "⏳ إعادة التشفير…"; msg.classList.add("show");
+  // أعِد لفّ wrapMaster لكل مشروع بالكلمة الجديدة
+  for (const id of Object.keys(rawProjects)) {
+    const key = masterKeys[id] || await unwrapKey(rawProjects[id].wrapMaster, cur);
+    rawProjects[id].wrapMaster = await wrapKey(key, nw);
+    await fbWriteProject(id, rawProjects[id]);
+  }
+  // أعِد إنشاء masterCheck ولفّ مفتاح سجل الدخول الخاص بالكلمة الجديدة
+  const newCheck = await makeMasterCheck(nw);
+  const newPrivWrap = await wrapPriv(masterLogPriv, nw);
+  await fbWriteConfig({ masterCheck: newCheck, logPubKey: appConfig.logPubKey, logPrivWrap: newPrivWrap });
+  appConfig = { masterCheck: newCheck, logPubKey: appConfig.logPubKey, logPrivWrap: newPrivWrap };
+  _masterPw = nw;
   document.getElementById("mpCur").value = ""; document.getElementById("mpNew").value = "";
-  msg.style.color="#7fcf9f"; msg.textContent = "✓ تم تغيير الكلمة الرئيسية"; msg.classList.add("show");
+  msg.style.color="#7fcf9f"; msg.textContent = "✓ تم تغيير الكلمة الرئيسية وإعادة التشفير"; msg.classList.add("show");
 }
 
 // أزرار البوابة واللوحة
@@ -1456,11 +1726,17 @@ document.getElementById("gateEnter").addEventListener("click", tryEnter);
 document.getElementById("gatePass").addEventListener("keydown", (ev) => { if (ev.key === "Enter") tryEnter(); });
 document.getElementById("npCreate").addEventListener("click", createProject);
 document.getElementById("dashLock").addEventListener("click", lockApp);
-
-// زر القفل داخل المشروع
 document.getElementById("lockBtn").addEventListener("click", lockApp);
 
-// البداية: شاشة الدخول
+// البداية
+function startApp() {
+  fbReady = true;
+  subscribeFirestore();
+  lockApp();
+}
+if (window.FB && window.FB.ready) startApp();
+else window.addEventListener("fb-ready", startApp, { once: true });
+
 lockApp();
 
 </script>
