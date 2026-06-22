@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="UTF-8">
+<!-- saved from url=(0082)file:///Users/abdulrazakabounabout/Desktop/Web%20App%20time/index%2023-6-2026.html -->
+<html lang="ar" dir="rtl"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>مسلسل جلد ذات</title>
+<title>Abdulrazak Series Tracker</title>
 <style>
   :root {
     --bg: #17171b;
@@ -241,7 +241,7 @@
 <div class="modal-overlay no-print" id="backupModal">
   <div class="modal" style="max-width:440px">
     <p>نسختك الاحتياطية جاهزة. انسخ كل النص التالي واحفظه في مكان آمن (ملاحظات / إيميل)، ولاسترجاعه استخدم زر "استرجاع":</p>
-    <textarea id="backupArea" readonly></textarea>
+    <textarea id="backupArea" readonly=""></textarea>
     <div class="actions" style="margin-top:14px">
       <button class="btn-ghost" id="backupClose">إغلاق</button>
       <button class="btn-add" id="backupCopy">نسخ النص</button>
@@ -342,7 +342,7 @@
 </div>
 
 <!-- ===== شاشة الدخول ===== -->
-<div id="gateView">
+<div id="gateView" style="display: block;">
   <div class="gate-box">
     <h1 class="gate-title">🎬 Abdulrazak Abou Nabout<br>Series Tracker</h1>
     <p class="gate-sub">اكتب كلمة مرور المشروع للدخول، أو الكلمة الرئيسية لإدارة كل المشاريع.</p>
@@ -355,7 +355,7 @@
 </div>
 
 <!-- ===== لوحة المشاريع (master) ===== -->
-<div id="dashboardView">
+<div id="dashboardView" style="display: none;">
   <header>
     <h1>🗂️ كل المشاريع</h1>
     <button class="btn-ghost" id="dashLock">🔒 خروج</button>
@@ -402,7 +402,7 @@
 </div>
 
 <!-- ===== شاشة المشروع (التتبع) ===== -->
-<div id="trackerView">
+<div id="trackerView" style="display: none;">
 <header>
   <h1>🎬 <span id="titleText" contenteditable="true" spellcheck="false" title="اضغط لتعديل الاسم">مسلسل جلد ذات</span> <span class="title-edit" id="titlePencil" title="تعديل الاسم">✎</span> <span class="role-badge" id="roleBadge"></span> <button class="btn-ghost no-print" id="lockBtn" style="font-size:12px; padding:5px 10px">🔒 خروج</button></h1>
   <div class="grand"><span id="grandTotal">00.00.00</span><small>المجموع الكلي</small></div>
@@ -413,7 +413,7 @@
   <form id="addForm">
     <div>
       <label>اليوم</label>
-      <input type="number" id="day" min="1" required placeholder="1">
+      <input type="number" id="day" min="1" required="" placeholder="1">
     </div>
     <div>
       <label>التاريخ</label>
@@ -421,15 +421,15 @@
     </div>
     <div>
       <label>الحلقة</label>
-      <input type="number" id="episode" min="1" required placeholder="5">
+      <input type="number" id="episode" min="1" required="" placeholder="5">
     </div>
     <div>
       <label>المشهد</label>
-      <input type="text" id="scene" required placeholder="20">
+      <input type="text" id="scene" required="" placeholder="20">
     </div>
     <div>
       <label>المدة (د.ث)</label>
-      <input type="text" id="duration" class="tc" required placeholder="1.30" inputmode="decimal">
+      <input type="text" id="duration" class="tc" required="" placeholder="1.30" inputmode="decimal">
     </div>
     <button type="submit" class="btn-add">إضافة</button>
     <div class="note-field">
@@ -466,20 +466,20 @@
 
 <div class="toolbar no-print">
   <span id="masterTools">
-    <button class="btn-ghost" id="undoBtn" onclick="undo()" disabled>↶ Undo</button>
-    <button class="btn-ghost" id="redoBtn" onclick="redo()" disabled>↷ Redo</button>
+    <button class="btn-ghost" id="undoBtn" onclick="undo()" disabled="">↶ Undo</button>
+    <button class="btn-ghost" id="redoBtn" onclick="redo()" disabled="">↷ Redo</button>
   </span>
   <button class="btn-ghost" onclick="printPDF()">🖨 تصدير PDF</button>
   <span id="masterIO">
     <button class="btn-ghost" onclick="exportJSON()">⬇️ نسخة احتياطية</button>
-    <button class="btn-ghost" onclick="document.getElementById('importFile').click()">⬆️ استرجاع</button>
+    <button class="btn-ghost" onclick="document.getElementById(&#39;importFile&#39;).click()">⬆️ استرجاع</button>
   </span>
   <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(event)">
 </div>
 
 <div class="totals">
   <div class="card">
-    <h2 class="toggle-h" onclick="toggleCard('epCard')">
+    <h2 class="toggle-h" onclick="toggleCard(&#39;epCard&#39;)">
       <span class="chev" id="epChev">▾</span>
       📺 مجموع كل حلقة <span style="font-weight:400">(اضغط على حلقة لعرض مشاهدها)</span>
     </h2>
@@ -491,7 +491,7 @@
     </div>
   </div>
   <div class="card">
-    <h2 class="toggle-h" onclick="toggleCard('dayCard')">
+    <h2 class="toggle-h" onclick="toggleCard(&#39;dayCard&#39;)">
       <span class="chev" id="dayChev">▾</span>
       📅 مجموع كل يوم مونتاج
     </h2>
@@ -1797,5 +1797,6 @@ else window.addEventListener("fb-ready", startApp, { once: true });
 lockApp();
 
 </script>
-</body>
-</html>
+
+
+</body></html>
