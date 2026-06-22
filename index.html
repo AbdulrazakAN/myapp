@@ -1259,39 +1259,63 @@ function buildPrintHTML() {
     <div><h2>📅 مجموع كل يوم مونتاج</h2>
       <table><thead><tr><th>اليوم</th><th>التاريخ</th><th>مشاهد</th><th>الزمن</th></tr></thead><tbody>${dayRows||'<tr><td colspan="4">—</td></tr>'}</tbody></table></div>
   </div>
-  <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
 </body></html>`;
 }
 
 function printPDF() {
   if (entries.length === 0) { showBanner("لا توجد بيانات للطباعة بعد", false); return; }
   const html = buildPrintHTML();
-  // 1) افتح نافذة طباعة نظيفة (الأضمن في المتصفحات)
-  let w = null;
-  try { w = window.open("", "_blank"); } catch (e) { w = null; }
-  if (w && w.document) {
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    showBanner("✓ فُتحت صفحة الطباعة — اختر \"حفظ كـ PDF\"", true);
+
+  // 1) الطريقة الأضمن: اطبع عبر iframe مخفي في نفس الصفحة (لا يحجبه مانع النوافذ)
+  try {
+    let f = document.getElementById("printFrame");
+    if (f) f.remove();
+    f = document.createElement("iframe");
+    f.id = "printFrame";
+    f.setAttribute("aria-hidden", "true");
+    f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+    document.body.appendChild(f);
+    const d = f.contentWindow.document;
+    d.open(); d.write(html); d.close();
+    const doPrint = () => {
+      try { f.contentWindow.focus(); f.contentWindow.print(); }
+      catch (e) { fallbackPrint(html); }
+    };
+    // امهل المتصفح لحظة لتجهيز التخطيط (RTL/الخطوط) ثم اطبع
+    f.onload = () => setTimeout(doPrint, 300);
+    setTimeout(() => { if (f.contentWindow && f.contentWindow.document.readyState === "complete") doPrint(); }, 500);
+    showBanner("✓ افتح نافذة الطباعة واختر \"حفظ كـ PDF\"", true);
     return;
-  }
-  // 2) لو فتح النوافذ محظور: حمّل ملف HTML جاهز للطباعة
+  } catch (e) {}
+
+  fallbackPrint(html);
+}
+
+// خطط بديلة: نافذة جديدة ثم تنزيل ملف HTML للطباعة
+function fallbackPrint(html) {
+  try {
+    const w = window.open("", "_blank");
+    if (w && w.document) {
+      w.document.open(); w.document.write(html); w.document.close(); w.focus();
+      setTimeout(() => { try { w.print(); } catch (e) {} }, 400);
+      return;
+    }
+  } catch (e) {}
   try {
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const t = (titleText ? titleText.textContent : "المسلسل").trim();
-    a.href = url; a.download = `${t}-للطباعة.html`;
+    const n = new Date(); const p = x => String(x).padStart(2,"0");
+    const stamp = `${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}_${p(n.getHours())}-${p(n.getMinutes())}`;
+    const t = (((currentProject && currentProject.name) || (titleText ? titleText.textContent : "المسلسل"))
+      .replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ").trim() || "المسلسل");
+    a.href = url; a.download = `${t}-${stamp}-للطباعة.html`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(url), 1500);
-    showBanner("✓ نزّل ملف الطباعة — افتحه بمتصفح واطبعه (Cmd+P) كـ PDF", true);
-    return;
-  } catch (e) {}
-  // 3) آخر حل: حاول طباعة الصفحة الحالية
-  try { window.print(); }
-  catch (e) { showBanner("⚠️ افتح الملف بمتصفح على جهازك ثم اضغط زر PDF", false); }
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    showBanner("✓ نزّل ملف الطباعة — افتحه واطبعه (Cmd+P) كـ PDF", true);
+  } catch (e) {
+    showBanner("⚠️ تعذّرت الطباعة في هذا المتصفح", false);
+  }
 }
 
 function exportJSON() {
@@ -1301,11 +1325,13 @@ function exportJSON() {
     return;
   }
   const text = JSON.stringify(entries, null, 2);
-  // اسم الملف يحمل تاريخ عمل النسخة: 2026-06-18
+  // اسم الملف يحمل اسم المشروع + التاريخ والوقت: مسلسل جلد ذات-2026-06-18_14-30
   const n = new Date();
   const p = x => String(x).padStart(2, "0");
-  const stamp = `${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}`;
-  const fileName = `نسخة-احتياطية-المسلسل-${stamp}.json`;
+  const stamp = `${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}_${p(n.getHours())}-${p(n.getMinutes())}`;
+  const safeName = ((currentProject && currentProject.name) || (titleText ? titleText.textContent : "المسلسل"))
+    .replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ").trim() || "المسلسل";
+  const fileName = `${safeName}-${stamp}.json`;
   // 1) جرّب التحميل كملف
   try {
     const blob = new Blob([text], { type: "application/json" });
