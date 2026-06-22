@@ -529,7 +529,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
-  import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs }
+  import { getFirestore, initializeFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs }
     from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -543,7 +543,12 @@
   };
 
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  let db;
+  try {
+    db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+  } catch (e) {
+    db = getFirestore(app);
+  }
   window.FB = { db, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs, ready: true };
   window.dispatchEvent(new Event("fb-ready"));
 </script>
@@ -578,6 +583,8 @@ let filter = { day: "", date: "", episode: "", scene: "" };
 let sort = { key: "day", dir: 1 };
 let fbReady = false;
 let firstSnapshotDone = false;
+let configLoaded = false;       // هل وصلت قراءة الإعدادات بنجاح؟
+let fbError = false;            // هل فشل الاتصال/الصلاحيات؟
 
 let rawProjects = {};          // id -> {blob, wrapProj, wrapMaster}
 let appConfig = null;          // {masterCheck, logPubKey, logPrivWrap}
@@ -601,9 +608,9 @@ function fbDeleteProject(id) {
   deleteDoc(doc(db, "projects", id)).catch(()=>{});
 }
 function fbWriteConfig(obj) {
-  if (!fbReady) return Promise.resolve();
+  if (!fbReady) return Promise.reject(new Error("not ready"));
   const { db, doc, setDoc } = window.FB;
-  return setDoc(doc(db, "config", "app"), obj).catch(()=>{});
+  return setDoc(doc(db, "config", "app"), obj); // لا نبتلع الخطأ — ليكتشفه الإعداد
 }
 
 // حفظ المشروع الحالي: يشفّر المحتوى بمفتاح المشروع ويكتب blob فقط (يبقي الأغلفة كما هي)
@@ -638,16 +645,18 @@ function subscribeFirestore() {
   const { db, collection, onSnapshot, doc } = window.FB;
   onSnapshot(doc(db, "config", "app"), async (d) => {
     appConfig = (d && d.exists()) ? d.data() : null;
+    configLoaded = true; fbError = false;
     if (appConfig && appConfig.logPubKey) { try { logPubKey = await importPub(appConfig.logPubKey); } catch {} }
     updateGateMode();
-  }, () => {});
+  }, (err) => { fbError = true; configLoaded = true; updateGateMode(); });
 
   onSnapshot(collection(db, "projects"), async (snap) => {
+    fbError = false;
     rawProjects = {};
     snap.docs.forEach(d => { rawProjects[d.id] = d.data() || {}; });
     if (!firstSnapshotDone) firstSnapshotDone = true;
     await refreshDecrypted();
-  }, () => { showBanner("⚠️ تعذّر الاتصال بقاعدة البيانات", false); });
+  }, () => { fbError = true; updateGateMode(); });
 
   onSnapshot(collection(db, "logins"), async (snap) => {
     rawLogins = snap.docs.map(d => ({ id: d.id, enc: (d.data()||{}).enc }));
@@ -1474,16 +1483,33 @@ function lockApp() {
   document.getElementById("gatePass").focus();
 }
 
-// تبديل واجهة البوابة بين "أول إعداد" و "دخول عادي"
+// تبديل واجهة البوابة حسب حالة الاتصال
 function updateGateMode() {
   const setupHint = document.getElementById("setupHint");
-  if (!setupHint) return;
-  if (fbReady && !isSetup()) {
+  const enter = document.getElementById("gateEnter");
+  const msg = document.getElementById("gateMsg");
+  if (!setupHint || !enter) return;
+
+  if (fbError) {
+    setupHint.style.display = "none";
+    enter.textContent = "إعادة المحاولة";
+    msg.style.color = "var(--danger)";
+    msg.textContent = "⚠️ تعذّر الاتصال بقاعدة البيانات. افتح Firestore ← Rules وانشر قواعد تسمح بالقراءة والكتابة، ثم أعد المحاولة.";
+    msg.classList.add("show");
+    return;
+  }
+  if (!fbReady || !configLoaded) {
+    setupHint.style.display = "none";
+    enter.textContent = "⏳ جارٍ الاتصال…";
+    return;
+  }
+  msg.classList.remove("show");
+  if (!isSetup()) {
     setupHint.style.display = "block";
-    document.getElementById("gateEnter").textContent = "تعيين الكلمة الرئيسية";
+    enter.textContent = "تعيين الكلمة الرئيسية";
   } else {
     setupHint.style.display = "none";
-    document.getElementById("gateEnter").textContent = "دخول";
+    enter.textContent = "دخول";
   }
 }
 
@@ -1494,13 +1520,18 @@ async function tryEnter() {
   try { localStorage.setItem("login-name", name); } catch {}
   const msg = document.getElementById("gateMsg");
   msg.classList.remove("show");
-  if (!fbReady) { msg.textContent = "⏳ جارٍ الاتصال…"; msg.classList.add("show"); return; }
+  if (fbError) { try { location.reload(); } catch {} return; }
+  if (!fbReady || !configLoaded) { msg.style.color="var(--muted)"; msg.textContent = "⏳ جارٍ الاتصال بقاعدة البيانات…"; msg.classList.add("show"); return; }
 
   // أول إعداد: لا توجد كلمة رئيسية بعد → عيّنها وأنشئ المفاتيح ورحّل البيانات القديمة
   if (!isSetup()) {
-    if (!pw) { msg.textContent = "⚠️ اكتب كلمة المرور الرئيسية الجديدة"; msg.classList.add("show"); return; }
-    msg.textContent = "⏳ جارٍ التهيئة…"; msg.classList.add("show");
-    await setupMaster(pw);
+    if (!pw) { msg.style.color="var(--danger)"; msg.textContent = "⚠️ اكتب كلمة المرور الرئيسية الجديدة"; msg.classList.add("show"); return; }
+    msg.style.color="var(--muted)"; msg.textContent = "⏳ جارٍ التهيئة…"; msg.classList.add("show");
+    try {
+      await setupMaster(pw);
+    } catch (e) {
+      fbError = true; updateGateMode(); return;   // فشل الكتابة = مشكلة صلاحيات
+    }
     await loginAsMaster(pw, name);
     return;
   }
